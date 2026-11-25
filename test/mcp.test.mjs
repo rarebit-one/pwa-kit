@@ -65,6 +65,28 @@ test('resources are optional', async () => {
   assert.deepEqual((await s.handle(rpc('resources/templates/list'))).result.resourceTemplates, []);
 });
 
+test('prompts are optional: list, get (with required arguments), unknown names', async () => {
+  assert.equal((await server.handle(rpc('initialize'))).result.capabilities.prompts, undefined);
+  assert.equal((await server.handle(rpc('prompts/list'))).error.code, -32601);
+  const s = createMcpServer({
+    name: 'p',
+    prompts: [
+      { name: 'brief', title: 'Brief', description: 'A morning brief', get: () => [{ role: 'user', content: { type: 'text', text: 'Read today.' } }] },
+      { name: 'about', arguments: [{ name: 'id', required: true }], get: (a, ctx) => ({ description: 'About one', messages: [{ role: 'user', content: { type: 'text', text: `${a.id} for ${ctx.who}` } }] }) },
+    ],
+  });
+  assert.deepEqual((await s.handle(rpc('initialize'))).result.capabilities.prompts, { listChanged: false });
+  assert.deepEqual((await s.handle(rpc('prompts/list'))).result.prompts, [{ name: 'brief', title: 'Brief', description: 'A morning brief' }, { name: 'about', arguments: [{ name: 'id', required: true }] }]);
+  const brief = (await s.handle(rpc('prompts/get', { name: 'brief' }))).result;
+  assert.equal(brief.description, 'A morning brief');
+  assert.equal(brief.messages[0].content.text, 'Read today.');
+  assert.equal((await s.handle(rpc('prompts/get', { name: 'about', arguments: { id: 'x' } }), { who: 'al' })).result.messages[0].content.text, 'x for al');
+  assert.equal((await s.handle(rpc('prompts/get', { name: 'about' }))).error.code, -32602);
+  assert.equal((await s.handle(rpc('prompts/get', { name: 'nope' }))).error.code, -32602);
+  assert.throws(() => createMcpServer({ name: 'x', prompts: [{ name: 'a' }] }));
+  assert.throws(() => createMcpServer({ name: 'x', prompts: [{ name: 'a', get() {} }, { name: 'a', get() {} }] }));
+});
+
 test('tool registry rejects duplicates and handler-less tools', () => {
   assert.throws(() => createMcpServer({ name: 'x', tools: [{ name: 'a', handler() {} }, { name: 'a', handler() {} }] }));
   assert.throws(() => createMcpServer({ name: 'x', tools: [{ name: 'a' }] }));

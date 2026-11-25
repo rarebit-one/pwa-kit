@@ -7,6 +7,10 @@
 // A handler receives (args, ctx) and returns any JSON value; it is sent both as text content
 // and as structuredContent. Throw ToolError for a tool-level failure the model should see.
 //
+// Optional `resources: { list, read, templates? }` and `prompts: [{ name, title?, description?,
+// arguments?, get(args, ctx) → { description?, messages } | messages[] }]` add those methods
+// and advertise the capability.
+//
 // Keys: an assistant can't carry a browser cookie, so it presents a scoped signed token
 // (see session.mjs) as "Authorization: Bearer <key>" (or ?key= for URL-only clients).
 
@@ -18,13 +22,22 @@ export class ToolError extends Error {}
 
 const rpcError = (id, code, message, data) => ({ jsonrpc: '2.0', id, error: { code, message, ...(data ? { data } : {}) } });
 
-export function createMcpServer({ name, version = '0.0.0', instructions, tools = [], resources = null, maxBatch = 20 }) {
+export function createMcpServer({ name, version = '0.0.0', instructions, tools = [], resources = null, prompts = null, maxBatch = 20 }) {
   const byName = new Map();
   for (const t of tools) {
     if (!t?.name || typeof t.handler !== 'function') throw new Error('each tool needs a name and a handler');
     if (byName.has(t.name)) throw new Error(`duplicate tool ${t.name}`);
     byName.set(t.name, t);
   }
+  const promptByName = new Map();
+  for (const p of prompts || []) {
+    if (!p?.name || typeof p.get !== 'function') throw new Error('each prompt needs a name and a get()');
+    if (promptByName.has(p.name)) throw new Error(`duplicate prompt ${p.name}`);
+    promptByName.set(p.name, p);
+  }
+  const promptList = () => (prompts || []).map(({ name: n, title, description, arguments: a }) => ({
+    name: n, ...(title ? { title } : {}), ...(description ? { description } : {}), ...(a ? { arguments: a } : {}),
+  }));
   const toolList = () => tools.map(({ name: n, title, description, inputSchema, annotations }) => ({
     name: n, ...(title ? { title } : {}), description: description || '',
     inputSchema: inputSchema || { type: 'object', properties: {} }, ...(annotations ? { annotations } : {}),
@@ -39,7 +52,11 @@ export function createMcpServer({ name, version = '0.0.0', instructions, tools =
     switch (msg.method) {
       case 'initialize': {
         const want = msg.params?.protocolVersion;
-        const capabilities = { tools: { listChanged: false }, ...(resources ? { resources: { listChanged: false } } : {}) };
+        const capabilities = {
+          tools: { listChanged: false },
+          ...(resources ? { resources: { listChanged: false } } : {}),
+          ...(prompts ? { prompts: { listChanged: false } } : {}),
+        };
         return reply({ protocolVersion: MCP_VERSIONS.includes(want) ? want : MCP_VERSIONS[0], capabilities, serverInfo: { name, version }, ...(instructions ? { instructions } : {}) });
       }
       case 'ping': return reply({});
@@ -68,6 +85,21 @@ export function createMcpServer({ name, version = '0.0.0', instructions, tools =
         const r = await resources.read(uri, ctx);
         return r ? reply(r) : rpcError(id, -32002, `Resource not found: ${String(uri).slice(0, 80)}`, { uri });
       }
+      case 'prompts/list':
+        return prompts ? reply({ prompts: promptList() }) : rpcError(id, -32601, 'Method not found: prompts/list');
+      case 'prompts/get': {
+        if (!prompts) return rpcError(id, -32601, 'Method not found: prompts/get');
+        const p = promptByName.get(msg.params?.name);
+        if (!p) return rpcError(id, -32602, `Unknown prompt: ${String(msg.params?.name).slice(0, 60)}`);
+        const args = msg.params?.arguments ?? {};
+        if (typeof args !== 'object' || Array.isArray(args)) return rpcError(id, -32602, 'arguments must be an object');
+        for (const a of p.arguments || []) {
+          if (a.required && (args[a.name] == null || args[a.name] === '')) return rpcError(id, -32602, `Missing prompt argument: ${a.name}`);
+        }
+        const r = await p.get(args, ctx);
+        const out = Array.isArray(r) ? { messages: r } : r;
+        return reply({ ...(p.description && !out.description ? { description: p.description } : {}), ...out });
+      }
       default: return rpcError(id, -32601, `Method not found: ${msg.method}`);
     }
   }
@@ -85,7 +117,7 @@ export function createMcpServer({ name, version = '0.0.0', instructions, tools =
     return { statusCode: 200, body: Array.isArray(msg) ? out : out[0] };
   }
 
-  return { handle, handlePost, toolList };
+  return { handle, handlePost, toolList, promptList };
 }
 
 // --- scoped keys ----------------------------------------------------------------
