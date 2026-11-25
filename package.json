@@ -36,5 +36,17 @@
     "digitalocean-functions",
     "oauth",
     "mcp"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rarebit-one/pwa-kit.git"
+  },
+  "homepage": "https://github.com/rarebit-one/pwa-kit#readme",
+  "bugs": {
+    "url": "https://github.com/rarebit-one/pwa-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }

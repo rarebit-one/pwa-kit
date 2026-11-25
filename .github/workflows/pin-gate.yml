@@ -1,0 +1,23 @@
+name: Pin Gate
+
+# Thin caller for the org-shared Actions-pinning gate (zizmor + pinact). Fails a PR that
+# references a third-party action by mutable tag or branch instead of a full commit SHA.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: pin-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pin-check:
+    permissions:
+      contents: read
+    uses: rarebit-one/.github/.github/workflows/pin-check.yml@main
+    with:
+      # Public repo: GitHub-hosted runner only.
+      runner-label: ubuntu-latest
