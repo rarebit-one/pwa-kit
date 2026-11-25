@@ -1,0 +1,40 @@
+{
+  "name": "@rarebit/pwa-kit",
+  "version": "0.1.0",
+  "description": "Small, dependency-free building blocks for a private, installable PWA served through a serverless function: inline build, service worker with install guards and a kill switch, feed cache with self-wipe, signed sessions, GitHub OAuth, bucket publish, last-writer-wins state and a stateless MCP transport.",
+  "license": "MIT",
+  "author": "Rarebit One",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "exports": {
+    "./build": "./src/build.mjs",
+    "./sw": "./src/sw.mjs",
+    "./client": "./src/client.mjs",
+    "./publish": "./src/publish.mjs",
+    "./serve": "./src/serve.mjs",
+    "./session": "./src/session.mjs",
+    "./oauth": "./src/oauth.mjs",
+    "./state": "./src/state.mjs",
+    "./mcp": "./src/mcp.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "for f in src/*.mjs; do node --check \"$f\" || exit 1; done"
+  },
+  "keywords": [
+    "pwa",
+    "service-worker",
+    "serverless",
+    "digitalocean-functions",
+    "oauth",
+    "mcp"
+  ]
+}
