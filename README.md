@@ -212,7 +212,9 @@ const { statusCode, body } = await server.handlePost(req.rawBody, { who: who.u }
 ```
 
 The server supports `initialize`, `ping`, `tools/list`, `tools/call`, and optionally
-`resources/list|read|templates/list`. It also handles batches and notifications (202).
+`resources/list|read|templates/list` and `prompts/list|get` (pass `prompts: [{ name, title?,
+description?, arguments?, get(args, ctx) }]`; `get` returns `{ description?, messages }` or the
+messages array). It also handles batches and notifications (202).
 `mintMcpKey` issues a scoped key; prefer a Bearer header over `?key=`.
 
 ## Licence
