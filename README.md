@@ -217,6 +217,18 @@ description?, arguments?, get(args, ctx) }]`; `get` returns `{ description?, mes
 messages array). It also handles batches and notifications (202).
 `mintMcpKey` issues a scoped key; prefer a Bearer header over `?key=`.
 
+## Releasing
+
+Bump `version` in `package.json` on `main` (by PR), then push a matching tag:
+
+```sh
+git tag v0.2.1 && git push origin v0.2.1
+```
+
+`release.yml` checks the tag matches `package.json`, runs the tests and publishes to npm through
+[trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC, GitHub-hosted runner),
+so no npm token is stored and every release carries a provenance attestation.
+
 ## Licence
 
 MIT © Rarebit One

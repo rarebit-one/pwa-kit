@@ -1,6 +1,6 @@
 {
   "name": "@rarebit-one/pwa-kit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Small, dependency-free building blocks for a private, installable PWA served through a serverless function: inline build, service worker with install guards and a kill switch, feed cache with self-wipe, signed sessions, GitHub OAuth, bucket publish, last-writer-wins state and a stateless MCP transport.",
   "license": "MIT",
   "author": "Rarebit One",
