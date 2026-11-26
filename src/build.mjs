@@ -118,6 +118,7 @@ export function buildSite({
   extraSources = [],
   date = new Date(),
   defines = {},
+  push = null,
 }) {
   if (!outDir || !title || !cachePrefix) throw new Error('buildSite needs outDir, title and cachePrefix');
   const mods = [...(includeClient ? [CLIENT_PATH] : []), ...modules].map((f) => {
@@ -127,7 +128,7 @@ export function buildSite({
   const styles = [].concat(css).map((f) => readFileSync(f, 'utf8')).join('\n');
   const man = renderManifest({ name: title, shortName, description, themeColor, backgroundColor, ...manifest });
   const defs = Object.entries(defines).map(([k, v]) => `const ${k} = ${JSON.stringify(v)};`).join('\n');
-  const build = computeBuild([mods, styles, body, head, JSON.stringify(man), defs, ...extraSources], { date });
+  const build = computeBuild([mods, styles, body, head, JSON.stringify(man), defs, ...(push ? [JSON.stringify(push)] : []), ...extraSources], { date });
   const script = `(() => {\n"use strict";\nconst BUILD = ${JSON.stringify(build)};\n${defs}\n${mods}\n})();`;
 
   mkdirSync(join(outDir, 'icons'), { recursive: true });
@@ -148,6 +149,6 @@ export function buildSite({
   }
   write('sw.js', killSwitch
     ? killSwitchSource({ build: `kill-switch-${build}` })
-    : serviceWorkerSource({ build, cachePrefix, apiPrefix, extras: ['manifest.webmanifest', ...iconFiles] }));
+    : serviceWorkerSource({ build, cachePrefix, apiPrefix, extras: ['manifest.webmanifest', ...iconFiles], push }));
   return { build, outDir, files, killSwitch };
 }

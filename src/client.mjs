@@ -8,6 +8,8 @@
 //   createFeedCache({ ... })                    network-first JSON feeds with an offline copy and
 //                                               a self-wipe after N days without a signed-in sync
 //   logoutAndWipe(url)                          delete caches, IndexedDB and web storage, then go
+//   pushStatus() / subscribePush() / unsubscribePush()
+//                                               Web Push: permission, subscribe, unsubscribe
 
 export const PWA_KIT_UPDATE_THROTTLE_MS = 10 * 60 * 1000;
 
@@ -180,4 +182,84 @@ export async function logoutAndWipe(url = '/logout', {
   for (const s of storages) await step(() => { if (s) s.clear(); });
   await step(async () => { if (sw?.getRegistrations) await Promise.all((await sw.getRegistrations()).map((r) => r.unregister())); });
   navigate(url);
+}
+
+// --- Web Push ------------------------------------------------------------------
+
+/** base64url (a VAPID public key) → Uint8Array, for pushManager.subscribe. */
+export function pwaKitB64uToBytes(s) {
+  const b64 = String(s).replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (String(s).length % 4)) % 4);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+const pwaKitPushEnv = (o = {}) => ({
+  sw: 'sw' in o ? o.sw : (typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined),
+  NotificationImpl: 'NotificationImpl' in o ? o.NotificationImpl : (typeof Notification !== 'undefined' ? Notification : undefined),
+  hasPushManager: 'hasPushManager' in o ? o.hasPushManager : (typeof window !== 'undefined' && 'PushManager' in window),
+});
+
+/**
+ * Where Web Push stands on this device:
+ *   { state: 'unsupported' | 'denied' | 'subscribed' | 'off', permission, endpoint? }
+ * ('off' = supported and not denied, but no subscription yet.) Push needs an installed or
+ * secure-context page with a registered worker.
+ */
+export async function pushStatus(opts = {}) {
+  const { sw, NotificationImpl, hasPushManager } = pwaKitPushEnv(opts);
+  if (!sw || !NotificationImpl || !hasPushManager) return { state: 'unsupported', permission: 'unsupported' };
+  const permission = NotificationImpl.permission;
+  if (permission === 'denied') return { state: 'denied', permission };
+  try {
+    const reg = await sw.ready;
+    const sub = reg?.pushManager ? await reg.pushManager.getSubscription() : null;
+    if (sub && permission === 'granted') return { state: 'subscribed', permission, endpoint: sub.endpoint };
+  } catch { /* no worker yet */ }
+  return { state: 'off', permission };
+}
+
+/**
+ * Ask for permission and subscribe with the server's VAPID public key (base64url). Returns
+ * { ok: true, subscription } (subscription = PushSubscription.toJSON(), to POST to your server),
+ * or { ok: false, reason: 'unsupported' | 'denied' | 'dismissed' | 'failed', error? }.
+ * Call it from a tap: browsers only show the prompt for a user gesture. An existing
+ * subscription made with a different key is replaced.
+ */
+export async function subscribePush({ vapidPublicKey, ...opts } = {}) {
+  const { sw, NotificationImpl, hasPushManager } = pwaKitPushEnv(opts);
+  if (!sw || !NotificationImpl || !hasPushManager) return { ok: false, reason: 'unsupported' };
+  if (!vapidPublicKey) return { ok: false, reason: 'failed', error: 'no VAPID public key' };
+  let permission = NotificationImpl.permission;
+  if (permission === 'default') permission = await NotificationImpl.requestPermission();
+  if (permission === 'denied') return { ok: false, reason: 'denied' };
+  if (permission !== 'granted') return { ok: false, reason: 'dismissed' };
+  try {
+    const reg = await sw.ready;
+    const key = pwaKitB64uToBytes(vapidPublicKey);
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      const had = sub.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
+      const same = had && had.length === key.length && had.every((b, i) => b === key[i]);
+      if (!same) { await sub.unsubscribe(); sub = null; }
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    return { ok: true, subscription: sub.toJSON() };
+  } catch (e) {
+    return { ok: false, reason: 'failed', error: String(e?.message || e) };
+  }
+}
+
+/** Drop this device's subscription. Returns the endpoint it had (tell the server), or null. */
+export async function unsubscribePush(opts = {}) {
+  const { sw } = pwaKitPushEnv(opts);
+  try {
+    const reg = sw && (await sw.ready);
+    const sub = reg?.pushManager ? await reg.pushManager.getSubscription() : null;
+    if (!sub) return null;
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe();
+    return endpoint;
+  } catch { return null; }
 }
