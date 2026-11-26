@@ -1,4 +1,4 @@
-# @rarebit/pwa-kit
+# @rarebit-one/pwa-kit
 
 Small, dependency-free building blocks for a **private, installable PWA served through a
 single serverless function**: the function is the sign-in gate, the API, and a proxy for the
@@ -19,7 +19,7 @@ site files kept in a private bucket.
 Node 18 or later. No runtime dependencies. MIT licensed.
 
 ```bash
-npm install @rarebit/pwa-kit
+npm install @rarebit-one/pwa-kit
 npm test   # node --test
 ```
 
@@ -41,7 +41,7 @@ browser ──► function (gate) ──► bucket: site/index.html, site/sw.js,
 ## build
 
 ```js
-import { buildSite } from '@rarebit/pwa-kit/build';
+import { buildSite } from '@rarebit-one/pwa-kit/build';
 
 const { build } = buildSite({
   outDir: 'dist',
@@ -120,7 +120,7 @@ session storage, and the worker registrations, then navigates to `url`.
 ## publish
 
 ```js
-import { publishSite } from '@rarebit/pwa-kit/publish';
+import { publishSite } from '@rarebit-one/pwa-kit/publish';
 await publishSite({ dir: 'dist', prefix: 'site/', put: (key, body, contentType) => s3Put(key, body, contentType) });
 ```
 
@@ -130,7 +130,7 @@ for S3-compatible storage works. Keep the objects private.
 ## serve
 
 ```js
-import { serveFile, json } from '@rarebit/pwa-kit/serve';
+import { serveFile, json } from '@rarebit-one/pwa-kit/serve';
 const res = await serveFile('icons/icon-192.png', { prefix: 'site/', load: (key, { binary }) => bucketGet(key, binary) });
 return res ?? json(404, { error: 'not found' });
 ```
@@ -145,7 +145,7 @@ return res ?? json(404, { error: 'not found' });
 ## session
 
 ```js
-import { makeToken, readSessionCookie, cookie, logoutHeaders } from '@rarebit/pwa-kit/session';
+import { makeToken, readSessionCookie, cookie, logoutHeaders } from '@rarebit-one/pwa-kit/session';
 
 const secret = () => process.env.SESSION_SECRET;
 const token = makeToken('alice', { secret, ttlMs: 12 * 3600e3, epoch });
@@ -171,7 +171,7 @@ web actions expect).
 ## oauth
 
 ```js
-import { createGithubOAuth } from '@rarebit/pwa-kit/oauth';
+import { createGithubOAuth } from '@rarebit-one/pwa-kit/oauth';
 const gh = createGithubOAuth({ secret, stateCookie: 'app_oauth_state', userAgent: 'example-app' });
 
 // GET /api/auth/github
@@ -189,7 +189,7 @@ injectable.
 ## state
 
 ```js
-import { applyOps, emptyState } from '@rarebit/pwa-kit/state';
+import { applyOps, emptyState } from '@rarebit-one/pwa-kit/state';
 const { state, applied, rejected } = applyOps(current ?? emptyState(), ops, { by: 'alice', validate: (k, v) => (k.startsWith('note:') ? '' : 'unknown kind') });
 ```
 
@@ -199,7 +199,7 @@ capped at now + 60 s. `v: null` leaves a tombstone. `p` holds the previous value
 ## mcp
 
 ```js
-import { createMcpServer, verifyMcpKey, ToolError } from '@rarebit/pwa-kit/mcp';
+import { createMcpServer, verifyMcpKey, ToolError } from '@rarebit-one/pwa-kit/mcp';
 
 const server = createMcpServer({
   name: 'example', version: '1.0.0',
