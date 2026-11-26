@@ -15,6 +15,8 @@ site files kept in a private bucket.
 - **oauth**: GitHub OAuth with a signed state cookie and org or allowlist access.
 - **state**: last-writer-wins shared state.
 - **mcp**: a stateless JSON-RPC-over-POST MCP transport, and scoped keys.
+- **push**: Web Push on `node:crypto` (VAPID signing, RFC 8291 encryption, `sendPush`), with
+  worker handlers and client subscribe helpers.
 
 Node 18 or later. No runtime dependencies. MIT licensed.
 
@@ -72,7 +74,7 @@ hidden `#pwa-update` button ("Updated. Tap to reload.") for `showUpdateBanner`.
 
 ## sw
 
-`serviceWorkerSource({ build, cachePrefix, apiPrefix, extras })` and `killSwitchSource()`.
+`serviceWorkerSource({ build, cachePrefix, apiPrefix, extras, push })` and `killSwitchSource()`.
 
 The worker:
 
@@ -216,6 +218,57 @@ The server supports `initialize`, `ping`, `tools/list`, `tools/call`, and option
 description?, arguments?, get(args, ctx) }]`; `get` returns `{ description?, messages }` or the
 messages array). It also handles batches and notifications (202).
 `mintMcpKey` issues a scoped key; prefer a Bearer header over `?key=`.
+
+## push
+
+Web Push without a dependency: VAPID (RFC 8292) ES256 signing and RFC 8291 `aes128gcm`
+payload encryption on `node:crypto`. The encryption is tested against the RFC 8291 Appendix A
+vector.
+
+**Server.**
+
+```js
+import { generateVapidKeys, validSubscription, sendPush } from '@rarebit-one/pwa-kit/push';
+
+generateVapidKeys(); // once: { publicKey, privateKey } base64url; keep the private key secret
+
+const sub = validSubscription(body.subscription); // null unless https on a known push service
+const r = await sendPush(sub, { title: 'Deploy failed', body: 'production', url: '/#estate', id: 'deploy:42' }, {
+  vapid: { subject: 'mailto:ops@example.com', publicKey, privateKey },
+  ttl: 3600, urgency: 'high', // topic: 'deploy' replaces an undelivered message
+});
+// r = { ok, status, gone } — drop the subscription when gone (404/410)
+```
+
+`validSubscription` only accepts endpoints on the browser push services (FCM, Mozilla, Apple,
+WNS) by default, because the server POSTs to whatever endpoint is stored; pass
+`{ endpointOk }` to widen it. Payloads are capped at 3993 bytes (one 4096-octet record).
+`sendPush` never throws for a delivery failure: a network error comes back as `status: 0`.
+
+**Worker.** Build with `push` to add the handlers:
+
+```js
+buildSite({ /* … */ push: { defaultTitle: 'Dashboard', badge: 'icons/badge-96.png', resubscribeUrl: '/api/push/subscribe' } });
+```
+
+- `push` shows `{ title, body, url, id | tag, requireInteraction, silent }` as a notification
+  (the same `id` replaces an earlier one). A payload that isn't JSON is shown as the body.
+- `notificationclick` focuses an open window and navigates it to a same-origin `url`, or opens
+  a new window (an external `https:` link opens in the browser). Other schemes open the scope.
+- With `resubscribeUrl`, `pushsubscriptionchange` re-subscribes and POSTs
+  `{ subscription, replaces }` there with the session cookie.
+
+**Page.** Inlined with the rest of the client:
+
+```js
+await pushStatus();   // { state: 'unsupported' | 'denied' | 'off' | 'subscribed', permission, endpoint? }
+const r = await subscribePush({ vapidPublicKey }); // from a tap; { ok, subscription } or { ok: false, reason }
+if (r.ok) await fetch('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: r.subscription }) });
+const endpoint = await unsubscribePush();          // tell the server to forget it
+```
+
+`logoutAndWipe` unregisters the worker, which also ends its push subscription; the server
+should forget the device's subscription at logout too.
 
 ## Releasing
 

@@ -8,7 +8,8 @@
 //     waiting on the network;
 //   - activate deletes every other "<prefix>-*" cache (and nothing else);
 //   - requests under the API prefix are left to the page (which keeps its own feed cache);
-//   - the page can ask the worker its BUILD over a MessageChannel ("build").
+//   - the page can ask the worker its BUILD over a MessageChannel ("build");
+//   - with `push`, it shows Web Push messages as notifications and opens their link on tap.
 //
 // killSwitchSource() → a worker that deletes EVERY cache for the origin and unregisters
 // itself. Publish it in place of sw.js to recover devices stuck on a bad worker.
@@ -32,6 +33,7 @@ export function serviceWorkerSource({
   page = 'index.html',
   extras = [],
   timeoutMs = 3000,
+  push = null,
 }) {
   if (!build || !cachePrefix) throw new Error('serviceWorkerSource needs build and cachePrefix');
   if (!/^[A-Za-z0-9_-]+$/.test(cachePrefix)) throw new Error('cachePrefix must be [A-Za-z0-9_-]+');
@@ -100,6 +102,78 @@ self.addEventListener("fetch", (e) => {
   if (!EXTRAS.includes(path)) return;
   e.respondWith(caches.match(req, { cacheName: CACHE, ignoreSearch: true })
     .then((hit) => hit || timed(req).catch(() => Response.error())));
+});
+${push ? pushHandlersSource(push === true ? {} : push) : ''}`;
+}
+
+/**
+ * Worker source for Web Push: `push` shows the message, `notificationclick` opens its link,
+ * and (with `resubscribeUrl`) `pushsubscriptionchange` re-subscribes and tells the server.
+ *
+ * Message payload (JSON): { title, body?, url?, tag?, id?, requireInteraction?, silent? }.
+ * A payload that isn't JSON is shown as the body under `defaultTitle`. `url` may be relative
+ * to the scope or an absolute http(s) link; anything else opens the scope root.
+ */
+export function pushHandlersSource({ defaultTitle = 'Notification', icon = 'icons/icon-192.png', badge, resubscribeUrl } = {}) {
+  return `
+// ---- Web Push (pwa-kit)
+const PUSH_DEFAULT_TITLE = ${lit(String(defaultTitle))};
+const PUSH_ICON = ${icon ? lit(rel(icon)) : 'null'};
+const PUSH_BADGE = ${badge ? lit(rel(badge)) : 'null'};
+const PUSH_RESUBSCRIBE = ${resubscribeUrl ? lit(rel(resubscribeUrl)) : 'null'};
+function pushTarget(u) {
+  try {
+    const t = new URL(String(u || ""), self.registration.scope);
+    return t.protocol === "https:" || t.protocol === "http:" ? t.href : self.registration.scope;
+  } catch (e) { return self.registration.scope; }
+}
+function pushMessage(data) {
+  let d = {};
+  if (data) { try { d = data.json() || {}; } catch (e) { d = { body: data.text() }; } }
+  if (typeof d !== "object" || Array.isArray(d)) d = { body: String(d) };
+  const opts = {
+    body: String(d.body || "").slice(0, 500),
+    data: { url: pushTarget(d.url) },
+    requireInteraction: d.requireInteraction === true,
+    silent: d.silent === true,
+  };
+  const tag = d.tag || d.id;
+  if (tag) { opts.tag = String(tag).slice(0, 128); opts.renotify = true; }
+  if (PUSH_ICON) opts.icon = PUSH_ICON;
+  if (PUSH_BADGE) opts.badge = PUSH_BADGE;
+  return { title: String(d.title || PUSH_DEFAULT_TITLE).slice(0, 120), opts };
+}
+self.addEventListener("push", (e) => {
+  const m = pushMessage(e.data);
+  e.waitUntil(self.registration.showNotification(m.title, m.opts));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
+  e.waitUntil((async () => {
+    if (new URL(url).origin === self.location.origin) {
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const w of wins) {
+        if (new URL(w.url).origin !== self.location.origin) continue;
+        await w.focus();
+        if (w.url !== url && w.navigate) { try { await w.navigate(url); } catch (err) { /* uncontrolled: stay */ } }
+        return;
+      }
+    }
+    await self.clients.openWindow(url);
+  })());
+});
+self.addEventListener("pushsubscriptionchange", (e) => {
+  if (!PUSH_RESUBSCRIBE) return;
+  e.waitUntil((async () => {
+    const old = e.oldSubscription;
+    const sub = e.newSubscription || (old && old.options ? await self.registration.pushManager.subscribe(old.options) : null);
+    if (!sub) return;
+    await fetch(PUSH_RESUBSCRIBE, {
+      method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subscription: sub.toJSON(), replaces: old ? old.endpoint : null }),
+    });
+  })().catch(() => { /* the page re-subscribes on its next visit */ }));
 });
 `;
 }
